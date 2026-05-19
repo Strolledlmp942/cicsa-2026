@@ -149,9 +149,9 @@ Speed = 30 RPM × 132 mm/rev ÷ 60 s ≈ 66 mm/s
 
 This ~6.6 cm/s base speed provides enough controllability for the PID loop while still completing three laps in a competitive time. The N20 at 12V produces ~1.5 kg·cm of stall torque, sufficient to move our ~450g robot including a safety margin for carpet-surface friction.
 
-**Steering: 11 kg·cm Servo Motor**
+**Steering: DIYmall 11KG Mini All-Metal Digital Servo**
 
-The front axle uses a standard RC-style servo for steering. We chose an 11 kg·cm servo (rather than a lighter 3–5 kg·cm servo) because our front wheel assembly includes a 4mm-to-3mm steering shaft that creates mechanical friction. The heavier servo ensures fast, accurate response to PID commands without positional lag. The servo is calibrated to 90° center before mounting using a calibration sketch on the ESP32.
+The front axle uses the DIYmall 11KG coreless digital servo for steering. We chose an 11 kg·cm servo (rather than a lighter 3–5 kg·cm servo) because our front wheel assembly includes a 4mm-to-3mm steering shaft that creates mechanical friction. The heavier servo ensures fast, accurate response to PID commands without positional lag. The servo is calibrated to 90° center before mounting using a calibration sketch on the ESP32.
 
 **Wheels: TRX4M 1/18 scale**
 
@@ -179,7 +179,7 @@ With our wheelbase of approximately 120mm and maximum servo deflection of ±30°
 | Raspberry Pi 4B | 5V | 2.5A | Via USB-C through buck converter |
 | ESP32 | 3.3V | 500mA | Regulated on-board from 5V input |
 | RPLidar A1M8 | 5V | 500mA | Separate 5V rail from buck converter |
-| N20 DC Motor (×2) | 12V | ~300mA each (running) / ~1.5A stall | Via L298N driver from battery direct |
+| N20 DC Motor (×2) | 12V | ~300mA each (running) / ~1.5A stall | Via DRV8871 driver from battery direct |
 | Steering Servo | 5V | ~800mA peak | Via 5V rail |
 | URM37 Ultrasonic (×2) | 5V | ~40mA each | Via 5V rail |
 | Freenove Camera | 5V (CSI) | ~250mA | Powered through Pi CSI connector |
@@ -197,18 +197,18 @@ Three competition rounds are estimated at under 10 minutes total, giving more th
 
 **Voltage regulation:**
 
-A DC-DC buck converter steps the 11.1V battery down to a stable 5V 5A rail for the Raspberry Pi, LIDAR, servos, and sensors. The ESP32 is powered from the Pi's 5V GPIO pin. The motor driver (L298N) takes 12V directly from the battery to drive the N20 motors.
+A DC-DC buck converter steps the 11.1V battery down to a stable 5V 5A rail for the Raspberry Pi, LIDAR, servos, and sensors. The ESP32 is powered from the Pi's 5V GPIO pin. The motor driver (DRV8871) takes 12V directly from the battery to drive the N20 motors.
 
 **Wiring diagram:**
 
 > See [📁 Schemes](./schemes/) for the full wiring schematic (Fritzing + PDF export).
 
 Key connections:
-- Battery (+) → L298N 12V IN and Buck Converter IN
+- Battery (+) → DRV8871 VM IN and Buck Converter IN
 - Buck converter 5V OUT → Raspberry Pi USB-C, LIDAR 5V, Servo signal rail
 - Raspberry Pi GPIO 14 (TX) / 15 (RX) → ESP32 GPIO 16 (RX) / 17 (TX) via 3.3V logic (no level shifter needed since ESP32 is 3.3V tolerant on UART)
-- ESP32 GPIO 18 → L298N ENA (PWM speed control)
-- ESP32 GPIO 19/21 → L298N IN1/IN2 (direction)
+- ESP32 GPIO 18 → DRV8871 IN1 (PWM speed/direction control)
+- ESP32 GPIO 19 → DRV8871 IN2 (PWM speed/direction control)
 - ESP32 GPIO 22 → Servo signal wire (PWM)
 
 ### Sensor selection and placement
@@ -345,7 +345,7 @@ src/
 └── esp32/
     ├── main.py              # Boot and UART listener
     ├── pid_controller.py    # PID implementation
-    ├── motor_control.py     # L298N PWM control
+    ├── motor_control.py     # DRV8871 PWM control
     ├── servo_control.py     # Servo PWM output
     └── ultrasonic.py        # URM37 distance reading
 ```
@@ -396,9 +396,11 @@ Early testing with camera-only navigation showed poor performance in corners, wh
 
 **Alternative considered:** Single-camera line following. Rejected because the WRO 2026 track uses no floor markings — walls are the only navigational reference.
 
-### Why L298N motor driver (not DRV8833 or similar)?
+### Why DRV8871 motor driver (not L298N or DRV8833)?
 
-The L298N was chosen for its voltage tolerance (up to 46V input), which means our 11.1V LiPo connects directly with no additional protection circuitry. Its current capacity (2A per channel) handles the N20's stall current. The efficiency disadvantage (~30% heat loss vs ~5% for DRV8833) is acceptable given that our total motor runtime per round is under 3 minutes.
+The DRV8871 was chosen over the L298N we used in 2025 for three key reasons. First, efficiency: the DRV8871 uses N-channel MOSFETs and loses only ~5% of power as heat, compared to the L298N's ~30% loss — this means less thermal management and longer battery life. Second, built-in current regulation: the DRV8871 has integrated current sensing that limits peak current to 3.6A, protecting our N20 motors from stall damage without external circuitry. Third, size: the DRV8871 module is significantly smaller and lighter than the L298N, which matters for our weight budget.
+
+We considered the DRV8833 (dual-channel, 1.5A/channel) but rejected it because our N20 motors draw up to 1.5A stall each — right at the DRV8833's limit, with no safety margin. The DRV8871's 3.6A headroom is much more comfortable. The trade-off is that the DRV8871 is single-channel, so we use one module per motor (two total), but the smaller board size makes this easy to accommodate on our chassis.
 
 ### Design iteration history
 
@@ -430,22 +432,24 @@ The L298N was chosen for its voltage tolerance (up to 46V input), which means ou
 
 | Component | Quantity | Description | Link |
 |-----------|----------|-------------|------|
-| RPLidar A1M8 | 1 | 360° LIDAR for wall following | — |
+| Slamtec RPLIDAR A1M8 360° 2D LIDAR Scanner | 1 | 360° LIDAR for wall following | [Amazon](https://www.amazon.com/dp/B07TJW5SXF) |
 | URM37 V5 Ultrasonic | 2 | Close-range obstacle/parking distance | — |
-| N20 DC Motor 12V 1000RPM | 2 | Rear-wheel drive | — |
-| TRX4M 1/18 Wheels | 4 | Includes tires and rims | — |
-| Steering Shaft 4mm to 3mm | 1 | Connects servo to front axle | — |
+| N20 DC Gear Motor 12V 30RPM Metal Gearbox | 2 | Rear-wheel drive | [Amazon](https://www.amazon.com/dp/B0DB26SYNP) |
+| HobbyPark Brass 1.0 Beadlock Wheels & Tires for 1/18 TRX4M | 4 | Brass beadlock wheels + tires + foam inserts | [Amazon](https://www.amazon.com/dp/B0C3MNX4K7) |
+| PATIKIL U-Joint Steering Shaft Coupler 4mm to 3mm | 1 | Universal joint connects servo to front axle | [Amazon](https://www.amazon.com/dp/B0FWJGLZ9V) |
+| RC Front & Rear Axle Housing Set (TRX4M compatible) | 2 | Ackermann steering linkage | [Amazon](https://www.amazon.com/dp/B0CW2HFT57) |
 | ESP32 WROOM-32 | 1 | Real-time motor/servo controller | [Amazon](https://www.amazon.com/dp/B08D5ZD528) |
 | Raspberry Pi 4B (4GB) | 1 | Main compute / vision controller | [Amazon](https://a.co/d/084kiOZ5) |
-| Standard Front/Rear Axles | 2 | Ackermann steering linkage | — |
-| 11 kg·cm Servo Motor | 1 | Front-wheel steering | — |
-| L298N Motor Driver | 1 | N20 motor H-bridge control | [Amazon](https://www.amazon.com/dp/B0D2RJV2VX) |
+| DIYmall 11KG Mini All-Metal Digital Servo (360° Coreless) | 1 | Front-wheel steering | [Amazon](https://www.amazon.com/dp/B0DX1XG18Y) |
+| DRV8871 H-Bridge DC Motor Driver | 2 | PWM motor control, 3.6A peak, one per motor | [MercadoLibre](https://www.mercadolibre.com.mx/modulo-driver-drv8871-puente-h-control-motor-36a-65v-a-45v/up/MLMU3232504497) |
 | Freenove 8MP Camera | 1 | Traffic sign color detection | [Amazon](https://www.amazon.com/dp/B0BZYPBS17) |
 | LiPo 3S 11.1V 2200mAh | 1 | Main power source | — |
-| DC-DC Buck Converter 5V 5A | 1 | Steps 11.1V down to 5V rail | — |
-| Power switch | 1 | In-line with battery positive | — |
+| DC-DC Buck Converter 5V 5A | 1 | Steps 11.1V down to 5V rail | [Amazon](https://www.amazon.com/dp/B0D7MR48LB) |
+| 3×120 Dupont Jumper Cables 40cm (M-M, M-F, F-F) | 3 packs | Wiring between all modules | [MercadoLibre](https://articulo.mercadolibre.com.mx/MLM-3643032042-3pzs-120-jumper-cable-dupont-wire-40cm-cable-para-protoboard-_JM) |
+| Velstron 1,112-piece M3/M4/M5/M6 Screws, Bolts & Nuts Kit | 1 | Chassis fasteners and assembly hardware | [MercadoLibre](https://www.mercadolibre.com.mx/kit-surtido-de-1112-piezas-de-tornillos-pernos-y-tuercas/up/MLMU582984840) |
+| 5-Pack Rocker Switch ON/OFF Red 2-Pin 127V/10A | 1 | In-line with battery positive | [MercadoLibre](https://www.mercadolibre.com.mx/5-pzas-interruptor-onoff-rojo-2-pines-127v10a-rojo/p/MLM59606936) |
 
-**Estimated total cost: ~$120 USD**
+**Estimated total cost: ~$175 USD**
 
 ### Pre-installation checks
 
@@ -493,15 +497,21 @@ This repository contains all engineering materials for Team CICSA's self-driving
 | 1 | Raspberry Pi 4B (4GB) | [Amazon](https://a.co/d/084kiOZ5) |
 | 1 | ESP32 WROOM-32 | [Amazon](https://www.amazon.com/dp/B08D5ZD528) |
 | 1 | Freenove 8MP Camera | [Amazon](https://www.amazon.com/dp/B0BZYPBS17) |
-| 1 | L298N Motor Driver | [Amazon](https://www.amazon.com/dp/B0D2RJV2VX) |
+| 2 | DRV8871 H-Bridge DC Motor Driver | [MercadoLibre](https://www.mercadolibre.com.mx/modulo-driver-drv8871-puente-h-control-motor-36a-65v-a-45v/up/MLMU3232504497) |
 | 2 | URM37 V5 Ultrasonic Sensor | — |
-| 1 | RPLidar A1M8 | — |
-| 2 | N20 DC Motor 12V 30RPM | — |
-| 1 | 11 kg·cm Servo Motor | — |
+| 1 | Slamtec RPLIDAR A1M8 360° 2D LIDAR Scanner | [Amazon](https://www.amazon.com/dp/B07TJW5SXF) |
+| 2 | N20 DC Gear Motor 12V 30RPM Metal Gearbox | [Amazon](https://www.amazon.com/dp/B0DB26SYNP) |
+| 1 | DIYmall 11KG Mini All-Metal Digital Servo (360° Coreless) | [Amazon](https://www.amazon.com/dp/B0DX1XG18Y) |
+| 4 | HobbyPark Brass 1.0 Beadlock Wheels & Tires for 1/18 TRX4M | [Amazon](https://www.amazon.com/dp/B0C3MNX4K7) |
+| 1 | PATIKIL U-Joint Steering Shaft Coupler 4mm to 3mm | [Amazon](https://www.amazon.com/dp/B0FWJGLZ9V) |
+| 2 | RC Front & Rear Axle Housing Set (TRX4M compatible) | [Amazon](https://www.amazon.com/dp/B0CW2HFT57) |
 | 1 | LiPo 3S 11.1V 2200mAh | — |
-| 1 | DC-DC Buck Converter 5V 5A | — |
+| 1 | DC-DC Buck Converter 5V 5A | [Amazon](https://www.amazon.com/dp/B0D7MR48LB) |
+| 3 packs | 3×120 Dupont Jumper Cables 40cm (M-M, M-F, F-F) | [MercadoLibre](https://articulo.mercadolibre.com.mx/MLM-3643032042-3pzs-120-jumper-cable-dupont-wire-40cm-cable-para-protoboard-_JM) |
+| 1 | Velstron 1,112-piece M3/M4/M5/M6 Screws, Bolts & Nuts Kit | [MercadoLibre](https://www.mercadolibre.com.mx/kit-surtido-de-1112-piezas-de-tornillos-pernos-y-tuercas/up/MLMU582984840) |
+| 1 | 5-Pack Rocker Switch ON/OFF Red 2-Pin 127V/10A | [MercadoLibre](https://www.mercadolibre.com.mx/5-pzas-interruptor-onoff-rojo-2-pines-127v10a-rojo/p/MLM59606936) |
 
-**Estimated total cost: ~$120 USD**
+**Estimated total cost: ~$175 USD**
 
 ### Component function summary
 
@@ -510,13 +520,19 @@ This repository contains all engineering materials for Team CICSA's self-driving
 | Raspberry Pi 4B | Image processing, state machine, high-level navigation logic |
 | ESP32 | Real-time PID control, PWM output, ultrasonic sensor reading |
 | Freenove Camera | Traffic sign color detection via OpenCV |
-| RPLidar A1M8 | 360° wall distance mapping for open challenge navigation |
+| Slamtec RPLIDAR A1M8 | 360° wall distance mapping for open challenge navigation |
 | URM37 V5 (×2) | Close-range obstacle detection and parking alignment |
-| L298N Driver | H-bridge motor control for N20 drive motors |
-| N20 DC Motor (×2) | Rear-wheel drive |
-| 11 kg·cm Servo | Front-wheel Ackermann steering |
+| DRV8871 Driver (×2) | Efficient H-bridge motor control for N20 drive motors (one per motor) |
+| N20 DC Gear Motor (×2) | Rear-wheel drive, 30RPM at 12V |
+| DIYmall 11KG Servo | Front-wheel Ackermann steering, coreless digital motor |
+| HobbyPark Brass Wheels (×4) | High-grip 1.0" beadlock wheels for 1/18 TRX4M chassis |
+| PATIKIL U-Joint Coupler | 4mm-to-3mm universal joint connecting servo shaft to front axle |
+| RC Front & Rear Axle Set | Steering and drive axle housings |
 | LiPo 3S 2200mAh | Main power (11.1V, ~50 min runtime) |
 | Buck Converter 5V | Regulated 5V rail for Pi, LIDAR, sensors, servo |
+| Dupont Jumper Cables | All inter-module wiring connections |
+| M3/M4/M5/M6 Hardware Kit | Chassis assembly fasteners (screws, bolts, nuts, washers) |
+| Rocker Switch ON/OFF Red 2-Pin | Power control switch in-line with battery positive |
 
 ### Software and libraries
 
@@ -557,7 +573,6 @@ We are proud of how Team CICSA's robot evolved over this season. Starting from a
 
 **What we would improve with more time:**
 - Implement a Kalman filter to fuse LIDAR and ultrasonic data for more accurate position estimation
-- Replace the L298N with a more efficient DRV8833 driver to reduce heat generation
 - Add an IMU (MPU6050) to detect and correct for wheel slip during sharp corners
 - Improve the parking algorithm to use pixel-level magenta zone detection rather than distance-based thresholding
 - Add a web dashboard on the Pi for real-time parameter tuning over Wi-Fi during practice sessions
