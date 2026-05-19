@@ -432,7 +432,7 @@ The L298N was chosen for its voltage tolerance (up to 46V input), which means ou
 |-----------|----------|-------------|------|
 | RPLidar A1M8 | 1 | 360° LIDAR for wall following | — |
 | URM37 V5 Ultrasonic | 2 | Close-range obstacle/parking distance | — |
-| N20 DC Motor 12V 30RPM | 2 | Rear-wheel drive | — |
+| N20 DC Motor 12V 1000RPM | 2 | Rear-wheel drive | — |
 | TRX4M 1/18 Wheels | 4 | Includes tires and rims | — |
 | Steering Shaft 4mm to 3mm | 1 | Connects servo to front axle | — |
 | ESP32 WROOM-32 | 1 | Real-time motor/servo controller | [Amazon](https://www.amazon.com/dp/B08D5ZD528) |
